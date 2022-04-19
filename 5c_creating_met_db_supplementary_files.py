@@ -29,7 +29,7 @@ mets2atom = mets2atom.reset_index(drop=True)
 chemical_data = pd.read_csv("data/chemical_data.tsv", sep="\t")
 names = pd.read_csv("data/names.tsv", sep="\t")
 
-lm_che_pub_swlp = pd.read_csv("data/lipidmaps_to_chebi_to_swisslipids.tsv", sep="\t")
+lm_che_swl = pd.read_csv("data/lipidmaps_to_chebi_to_swisslipids.tsv", sep="\t")
 lipid_classes_data = pd.read_csv("data/lipidmaps_classes.tsv", sep="\t")
 swisslipids_classes = pd.read_csv("data/swisslipids_classes.tsv", sep="\t")
 
@@ -98,12 +98,12 @@ chebi_data.columns = ["metabolite", "metabolite_name", "metabolite_url",
 
 
 # Preprocessing lm_che_pub_swlp
-lm_che_pub_swlp.columns = ["metabolite", "LipidMaps_ID", "SwissLipids_ID"]
+lm_che_swl.columns = ["metabolite", "LipidMaps_ID", "SwissLipids_ID"]
 
 
 # Merging
 gna = pd.merge(mets2atom, chebi_data, how="left")
-gna = pd.merge(gna, lm_che_pub_swlp, how="left")
+gna = pd.merge(gna, lm_che_swl, how="left")
 gna.loc[gna["LipidMaps_ID"].isnull(), "LipidMaps_ID"] = "-"
 gna.loc[gna["SwissLipids_ID"].isnull(), "SwissLipids_ID"] = "-"
 

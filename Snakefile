@@ -13,19 +13,20 @@ rule all:
         "network/met.lipids.db.rds"
 
 
-## 1. Getting reactions
+## 1. Downloading list of Rhea reactions
 rule get_reactions_and_enzymes:
     singularity:
         "docker://mariaembio/python3.9_r4.0_java11_v2"
     output:
         "data/rhea2ec.tsv"
     message:
-        "...1. Downloading reactions' list..."
+        "...1. Downloading list of Rhea reactions..."
     shell:
         "wget https://ftp.expasy.org/databases/rhea/tsv/rhea2ec.tsv -O {output}"
 
 
-## 2. Downloading all rxn files
+## 2. Preprocessing RXN files
+# 2a. Downloading all RXN files
 rule download_rxn_files:
     singularity:
         "docker://mariaembio/python3.9_r4.0_java11_v2"
@@ -34,41 +35,29 @@ rule download_rxn_files:
     output:
         "data/rhea-rxn.tar.gz"
     message:
-        "...2. Downloading rxn files..."
+        "...2. Downloading RXN files..."
     shell:
         "wget https://ftp.expasy.org/databases/rhea/ctfiles/rhea%2Drxn.tar.gz -O {output}"
 
 
-## 3. Downloading UNDIRECTED to LR to RL
+## 2b. Creating LR reactions' list
 rule download_rxn_directions:
     singularity:
         "docker://mariaembio/python3.9_r4.0_java11_v2"
     input:
-        "data/rhea-rxn.tar.gz"
-    output:
-        "data/rhea-directions.tsv"
-    message:
-        "...3. Downloading reactions' directions mapping list..."
-    shell:
-        "wget https://ftp.expasy.org/databases/rhea/tsv/rhea-directions.tsv -O {output}"
-
-
-## 4. Getting LR rxn list
-rule sorting_rxn_files:
-    singularity:
-        "docker://mariaembio/python3.9_r4.0_java11_v2"
-    input:
-        "data/rhea-directions.tsv",
+        "data/rhea-rxn.tar.gz",
         "data/rhea2ec.tsv",
 
-        "4_getting_LR_rxns_list.py"
+        "2b_getting_LR_rxns_list.py"
     output:
+        "data/rhea-directions.tsv",
         "data/LR_Rhea_mapping_rxn.txt",
         "data/undirected_to_LR.tsv"
     message:
-        "...4. Creating LR reactions' list..."
+        "...2. Creating reactions directions mapping list..."
     shell:
-        "python3.9 4_getting_LR_rxns_list.py"
+        "wget https://ftp.expasy.org/databases/rhea/tsv/rhea-directions.tsv -O data/rhea-directions.tsv;"
+        "python3.9 2b_getting_LR_rxns_list.py"
 
 
 rule pre_RDT:
@@ -79,7 +68,7 @@ rule pre_RDT:
     output:
         "data/reports/rdt_test_done.txt"
     message:
-        "...5. Preparing for RDT step..."
+        "...3. Preparing for RDT step..."
     shell:
         "cwd=$(pwd);"
         "mkdir -p data/pre_rdt_output;"
@@ -88,7 +77,7 @@ rule pre_RDT:
         "touch $cwd/data/reports/rdt_test_done.txt"
 
 
-## 5. Moving LR to another folder
+## 2c. Moving LR to another folder
 checkpoint moving_rxns:
     singularity:
         "docker://mariaembio/python3.9_r4.0_java11_v2"
@@ -99,14 +88,14 @@ checkpoint moving_rxns:
     output:
         reactions=directory("data/LR_rxn")
     message:
-        "...5. Moving LR reactions..."
+        "...3. Moving LR reactions..."
     shell:
         'mkdir -p data/LR_rxn;'
         'for file in `cat data/LR_Rhea_mapping_rxn.txt`; do tar -xzf data/rhea-rxn.tar.gz rxn/$file || true; done;'
         "cp ./rxn/*.rxn ./data/LR_rxn/"
 
 
-## 6. Running RDT
+## 3. Running RDT
 rule performing_RDT:
     singularity:
         "docker://mariaembio/python3.9_r4.0_java11_v2"
@@ -147,32 +136,33 @@ rule aggregate:
         'fi'
 
 
-## 7. Analysing RDT
+## 4. Analyzing RDT
 rule performing_RDT_results_analysis:
     singularity:
         "docker://mariaembio/python3.9_r4.0_java11_v2"
     input:
         "data/rdt_done.txt",
 
-        "7_Rdt_Output_Analysis.R"
+        "4_RDT_output_analysis.R"
     output:
         "rdt_analysis/atom_mapping.csv"
     message:
-        "...7. Analysing RDT results and creating atom mapping table..."
+        "...4. Analyzing RDT results and creating atom mapping table..."
     shell:
         "mkdir -p rdt_analysis;"
-        "Rscript 7_Rdt_Output_Analysis.R"
+        "Rscript 4_RDT_output_analysis.R"
 
 
-## 8. Making RPAIRS and supplementary files
-rule creating_RPAIRS_and_supplementary_files:
+## 5. Creating supplementary files for network & metabolites annotation objects for both metabolite and lipid networks
+# 5a. Creating supplementary files for metabolite network object
+rule creating_network_supplementary_files:
     singularity:
         "docker://mariaembio/python3.9_r4.0_java11_v2"
     input:
         "rdt_analysis/atom_mapping.csv",
         "data/undirected_to_LR.tsv",
 
-        "8_Making_RPAIRS_and_supplementary_files.py"
+        "5a_creating_network_supplementary_files.py"
     output:
         "data/atom_mapping_C_atoms.csv",
         "data/rpairs_preprocessing.csv",
@@ -182,24 +172,26 @@ rule creating_RPAIRS_and_supplementary_files:
         "network_files/rpairs.csv",
         "network_files/full_atom_mapping_1.csv"
     message:
-        "...8. Creating RPAIRS and supplementary files..."
+        "...5. Creating network supplementary files..."
     shell:
         "mkdir -p network_files;"
-        "python3.9 8_Making_RPAIRS_and_supplementary_files.py"
+        "python3.9 5a_creating_network_supplementary_files.py"
 
 
-## 9.1. Preprocessing databases
+# 5b. Preprocessing ChEBI, LipidMaps & SwissLipids databases
 rule preprocessing_various_annotations:
     singularity:
         "docker://mariaembio/python3.9_r4.0_java11_v2"
     input:
-        "9_1_Preprocessing_various_annotations.py"
+        "data/rhea2ec.tsv",
+
+        "5b_preprocessing_annotations.py"
     output:
         "data/lipidmaps_to_chebi_to_swisslipids.tsv",
         "data/swisslipids_classes.tsv",
         "data/lipidmaps_classes.tsv"
     message:
-        "...9. Creating met.db.rhea supplementary files..."
+        "...5. Creating metabolites annotation supplementary files..."
     shell:
         "mkdir data/databases;"
         "wget 'https://www.lipidmaps.org/files/?file=LMSD&ext=sdf.zip' -O data/databases/LM.zip;"
@@ -207,9 +199,10 @@ rule preprocessing_various_annotations:
         "wget https://ftp.ebi.ac.uk/pub/databases/chebi/SDF/ChEBI_complete_3star.sdf;"
         "mv data/databases/ChEBI_complete_3star.sdf data/databases/ChEBI_complete_3star.txt;"
         "wget 'https://www.swisslipids.org/api/file.php?cas=download_files&file=lipids.tsv' -O data/databases/lipids.tsv;"
-        "python3.9 9_1_Preprocessing_various_annotations.py"
+        "python3.9 5b_preprocessing_annotations.py"
 
-## 9. Creating supplementary files for met.db.rhea
+
+## 5c. Creating supplementary files for met.db.rhea
 rule supp_files_for_met_db_rhea:
     singularity:
         "docker://mariaembio/python3.9_r4.0_java11_v2"
@@ -219,16 +212,15 @@ rule supp_files_for_met_db_rhea:
         "data/swisslipids_classes.tsv",
         "data/lipidmaps_classes",
 
-        "9_Creating_met_db_supplementary_files.py"
+        "5c_creating_met_db_supplementary_files.py"
     output:
         "network_files/annotation_of_nodes_master_graph.csv",
         "network_files/hmdb.csv",
         "network_files/anomers_suppl.csv",
         "data/kegg2chebi.tsv",
-
-        "9_Creating_met_db_supplementary_files.py"
+        "data/rhea2kegg_reaction.tsv"
     message:
-        "...9. Creating met.db.rhea supplementary files..."
+        "...5. Creating metabolites annotation supplementary files..."
     shell:
         "wget https://ftp.ebi.ac.uk/pub/databases/chebi/Flat_file_tab_delimited/chemical_data.tsv -O data/chemical_data.tsv;"
         "wget https://ftp.ebi.ac.uk/pub/databases/chebi/Flat_file_tab_delimited/names.tsv.gz -O data/names.tsv.gz;"
@@ -236,27 +228,27 @@ rule supp_files_for_met_db_rhea:
         "wget https://ftp.expasy.org/databases/rhea/tsv/chebi_pH7_3_mapping.tsv -O data/chebi_pH7_3_mapping.tsv;"
         "wget https://ftp.expasy.org/databases/rhea/tsv/rhea2kegg_reaction.tsv -O data/rhea2kegg_reaction.tsv;"
         "gzip -d data/names.tsv.gz;"
-        "python3.9 9_Creating_met_db_supplementary_files.py"
+        "python3.9 5c_creating_met_db_supplementary_files.py"
 
 
-## 10.1. Getting mappings for met.db
+## 5d. Getting mappings for met.db
 rule getting_mapping_tables_for_met_db_rhea:
     singularity:
         "docker://mariaembio/python3.9_r4.0_java11_v2"
     input:
         "data/kegg2chebi.tsv",
 
-        "10_1_Getting_HMDB_and KEGG_mappings.R"
+        "5d_getting_HMDB_KEGG_mappings.R"
     output:
         "data/HMDB2metabolite.csv",
         "data/react2enz_kegg.csv"
     message:
-        "...9. Creating met.db.rhea supplementary files..."
+        "...5. Creating metabolites annotation supplementary files..."
     shell:
-        "Rscript 10_1_Getting_HMDB_and KEGG_mappings.R"
+        "Rscript 5d_getting_HMDB_KEGG_mappings.R"
 
 
-## 10.2. Converting mappings for met.db
+## 5e. Converting mappings for met.db
 rule converting_mappings_for_met_db_rhea:
     singularity:
         "docker://mariaembio/python3.9_r4.0_java11_v2"
@@ -264,91 +256,64 @@ rule converting_mappings_for_met_db_rhea:
         "data/kegg2chebi.tsv",
         "data/HMDB2metabolite.csv",
 
-        "10_2_Converting_db_IDs.py"
+        "5e_creating_HMDB_KEGG_mapping_files.py"
     output:
         "network_files/mapFromHMDB.csv",
         "network_files/mapFromKEGG.csv"
     message:
-        "...9. Creating met.db.rhea supplementary files..."
+        "...5. Creating metabolites annotation supplementary files..."
     shell:
-        "python3.9 10_2_Converting_db_IDs.py"
+        "python3.9 5e_creating_HMDB_KEGG_mapping_files.py"
 
-## 10. Create met.db.rhea
-rule creating_met_db_rhea_object:
+
+## 5f. Downloading network supplementary files for genes mapping
+rule downloading_supp_gene_files:
     singularity:
         "docker://mariaembio/python3.9_r4.0_java11_v2"
     input:
-        "network_files/annotation_of_nodes_master_graph.csv",
-        "network_files/mapFromHMDB.csv",
-        "network_files/mapFromKEGG.csv",
-        "network_files/anomers_suppl.csv",
-
-        "10_creating_met.db.rhea.R"
+        "data/rhea2ec.tsv",
+        "data/rhea-directions.tsv"
     output:
-        "network/met.rhea.db.rda",
-        "network/met.rhea.db.rds"
+        "genes_data/hsa.tsv",
+        "genes_data/hsa.proteins.tsv",
+        "data/rhea2uniprot_sprot.tsv"
     message:
-        "...10. Creating met.db.rhea object..."
-    shell:
-        "Rscript 10_creating_met.db.rhea.R"
-
-
-## 11. Download human proteome
-rule downloading_human_proteome:
-    singularity:
-        "docker://mariaembio/python3.9_r4.0_java11_v2"
-    input:
-        "network/met.rhea.db.rda"
-    output:
-        "genes_data/hsa.proteins.tsv"
-    message:
-        "...11. Downloading human proteome..."
+        "...5. Downloading network supplementary files..."
     shell:
         "mkdir genes_data;"
         "wget 'https://www.uniprot.org/uniprot/?query=proteome:UP000005640&format=tab&force=true&columns=id,entry%20name,reviewed,protein%20names,database(Ensembl),database(GeneID)&compress=yes' -O genes_data/hsa.proteins.tsv.gz;"
-        "gzip -d genes_data/hsa.proteins.tsv.gz"
+        "gzip -d genes_data/hsa.proteins.tsv.gz;"
+        "wget https://ftp.expasy.org/databases/rhea/tsv/rhea2uniprot_sprot.tsv -O data/rhea2uniprot_sprot.tsv;"
+        "wget http://rest.kegg.jp/link/enzyme/hsa -O genes_data/hsa.tsv"
 
 
-## 12. Downloading rhea to Uniprot mapping
-rule download_rhea2uniprot:
-    singularity:
-        "docker://mariaembio/python3.9_r4.0_java11_v2"
-    input:
-        "network/met.rhea.db.rda"
-    output:
-        "data/rhea2uniprot_sprot.tsv"
-    message:
-        "...12. Downloading Rhea to Uniprot mapping..."
-    shell:
-        "wget https://ftp.expasy.org/databases/rhea/tsv/rhea2uniprot_sprot.tsv -O {output}"
-
-
-## 13. Supplementary files for network
+## 5g. Creating supplementary files for metabolite network object
 rule supp_files_for_network:
     singularity:
         "docker://mariaembio/python3.9_r4.0_java11_v2"
     input:
         "data/rhea2ec.tsv",
         "data/rhea-directions.tsv",
-        "data/rhea2uniprot_sprot.tsv",
+        "data/react2enz_kegg.csv",
+        "data/rhea2kegg_reaction.tsv",
+        "genes_data/hsa.tsv",
         "genes_data/hsa.proteins.tsv",
+        "data/rhea2uniprot_sprot.tsv",
 
-        "13_creating_network_supplementary_files.py"
+        "5g_creating_network_supplementary_files.py"
     output:
         "network_files/enzyme2reaction.csv",
         "network_files/gene2reaction.tsv",
         "network_files/reaction_urls.tsv",
         "data/proteins_genes_unmerged.tsv",
-        "data/reactions_annotation.tsv",
-        "genes_data/hsa.tsv"
+        "data/reactions_annotation.tsv"
     message:
-        "...13. Creating network supplementary files..."
+        "...5. Creating network supplementary files..."
     shell:
-        "wget http://rest.kegg.jp/link/enzyme/hsa -O genes_data/hsa.tsv;"
-        "python3.9 13_creating_network_supplementary_files.py"
+        "python3.9 5g_creating_network_supplementary_files.py"
 
 
-## 14. Creating lipid-specific graph files
+## 5h. Creating supplementary files for lipid subnetwork object and corresponding metabolites annotation
 rule creating_lipid_files:
     singularity:
         "docker://mariaembio/python3.9_r4.0_java11_v2"
@@ -359,7 +324,7 @@ rule creating_lipid_files:
         "data/proteins_genes_unmerged.tsv",
         "data/reactions_annotation.tsv",
 
-        "14_creating_lipid_network_files.py"
+        "5h_creating_lipid_supplementary_files.py"
     output:
         "network_files/atoms_lipids.tsv",
         "network_files/enzyme2reaction_lipids.tsv",
@@ -368,12 +333,32 @@ rule creating_lipid_files:
         "network_files/mapFromLipidMaps.tsv",
         "network_files/mapFromSwissLipids_ver1.tsv"
     message:
-        "...14. Creating supplementary files..."
+        "...5. Creating lipid-specific supplementary files..."
     shell:
-        "python3.9 14_creating_lipid_network_files.py"
+        "python3.9 5h_creating_lipid_supplementary_files.py"
 
 
-## 15. Creating network object
+## 6a. Create metabolites annotation object
+rule creating_met_db_rhea_object:
+    singularity:
+        "docker://mariaembio/python3.9_r4.0_java11_v2"
+    input:
+        "network_files/annotation_of_nodes_master_graph.csv",
+        "network_files/mapFromHMDB.csv",
+        "network_files/mapFromKEGG.csv",
+        "network_files/anomers_suppl.csv",
+
+        "6a_creating_met.db.rhea.R"
+    output:
+        "network/met.rhea.db.rda",
+        "network/met.rhea.db.rds"
+    message:
+        "...6. Creating metabolites annotation object..."
+    shell:
+        "Rscript 6a_creating_met.db.rhea.R"
+
+
+## 6b. Creating network object
 rule creating_network_object:
     singularity:
         "docker://mariaembio/python3.9_r4.0_java11_v2"
@@ -382,19 +367,18 @@ rule creating_network_object:
         "network_files/enzyme2reaction.csv",
         "network_files/reaction_urls.tsv",
         "network_files/reaction2align.csv",
-        "network_files/gene2reaction.tsv",
 
-        "15_Creating_network_object.R"
+        "6b_creating_network_object.R"
     output:
         "network/network.rhea.rda",
         "network/network.rhea.rds"
     message:
-        "...15. Creating network object..."
+        "...6. Creating network object..."
     shell:
-        "Rscript 15_Creating_network_object.R"
+        "Rscript 6b_creating_network_object.R"
 
 
-## 16. Creating lipid network & lipid met.db
+## 7. Creating lipid network & lipid met.db
 rule creating_lipid_network_object:
     singularity:
         "docker://mariaembio/python3.9_r4.0_java11_v2"
@@ -407,14 +391,13 @@ rule creating_lipid_network_object:
         "network_files/mapFromSwissLipids_ver1.tsv",
         "pre_data/mapFromSpecies.csv",
 
-        "16_Creating_lipid_network.R"
+        "7_creating_lipid_subnetwork_objects.R"
     output:
         "network/network.rhea.lipids.rda",
         "network/network.rhea.lipids.rds",
         "network/met.lipids.db.rda",
         "network/met.lipids.db.rds"
     message:
-        "...16. Creating network object..."
+        "...7. Creating lipid network object and metabolites annotation object..."
     shell:
-        "Rscript 16_Creating_lipid_network.R"
-
+        "Rscript 7_creating_lipid_subnetwork_objects.R"
